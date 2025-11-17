@@ -1,32 +1,52 @@
 # prepare_docs.py
+# -*- coding: utf-8 -*-
 import re
 from typing import List, Dict
 
 ALL_FILE = "threebody.txt"
 
 
-def split_book1(text: str) -> List[Dict]:
-    """切分 三体1：按 '第X章 标题' 分章"""
-    # 去掉开头的"三体1"等标题
-    text = re.sub(r"^三体1\s*", "", text, count=1)
+# ====== 三体1 ======
 
-    # 以 "第X章 标题" 为分界
-    parts = re.split(r"(第\d+章[^\n]*\n)", text)
-    docs = []
+def split_book1(text: str) -> List[Dict]:
+    """切分《三体1》：按 '第X章 标题' 分章"""
+
+    # 去掉开头的“三体1”
+    text = re.sub(r"^三体1\s*", "", text, count=1)
+    text = text.lstrip("\n")
+
+    # 按行首的 “第\d+章 ...” 切
+    parts = re.split(r"(?m)^(第\d+章[^\n]*?)\n", text)
+
+    docs: List[Dict] = []
+    preface = parts[0].strip()  # 万一前面还有点东西，就并到第1章里
+
     for i in range(1, len(parts), 2):
-        heading = parts[i].strip()          # 例如 "第1章 科学边界"
-        content = parts[i + 1].strip()
-        m = re.match(r"第(\d+)章\s*(.*)", heading)
-        chapter_no = int(m.group(1)) if m else None
-        title = m.group(2) if m else heading
+        title_line = parts[i].strip()
+        body = parts[i + 1]
+
+        if i == 1 and preface:
+            body = preface + "\n" + body
+
+        m = re.match(r"第(\d+)章\s*(.*)", title_line)
+        if m:
+            ch_no = int(m.group(1))
+            ch_title = m.group(2).strip()
+        else:
+            ch_no = None
+            ch_title = title_line
+
         docs.append({
             "book": "三体1",
-            "section": "",  # 三体1没有明确的section划分
-            "chapter": title,
-            "content": content,
+            "chapter_no": ch_no,
+            "chapter": ch_title or title_line,
+            "content": body.strip(),
         })
+
     return docs
 
+
+# ====== 三体2：黑暗森林 ======
 
 def split_book2(text: str) -> List[Dict]:
     """切分 三体2：黑暗森林"""
@@ -96,90 +116,106 @@ def split_book2(text: str) -> List[Dict]:
     return docs
 
 
+# ====== 三体3：死神永生 ======
+
 def split_book3(text: str) -> List[Dict]:
-    """切分 三体3：死神永生"""
-    # 去掉开头 “三体3：死神永生”
-    text = re.sub(r"^三体3：死神永生\s*", "", text, count=1)
+    """切分《三体3》：纪年对照表 + 第X部 + 每部内的【小节】"""
+
+    # 去掉开头的“三体3：死神永生”
+    text = re.sub(r"^三体3[:：].*\n*", "", text, count=1)
+    text = text.lstrip("\n")
 
     docs: List[Dict] = []
 
-    # --- 纪年对照表 ---
-    table_pos = text.find("纪年对照表")
-    if table_pos != -1:
-        # 找到第一个 “第一部”
-        m_part1 = re.search(r"第[一二三四五六]部\s*\n", text[table_pos:])
-        if m_part1:
-            part1_abs_pos = table_pos + m_part1.start()
-        else:
-            part1_abs_pos = len(text)
-        table_content = text[table_pos:part1_abs_pos].strip()
-        docs.append({
-            "book": "三体3",
-            "section": "",
-            "chapter": "纪年对照表",
-            "content": table_content,
-        })
-        rest = text[part1_abs_pos:]
+    # 纪年对照表 + 第一部 之前的东西
+    m_first_part = re.search(r"(?m)^第[一二三四五六七八九十]+部\s*\n", text)
+    if m_first_part:
+        preface = text[:m_first_part.start()].strip()
+        if preface:
+            docs.append({
+                "book": "三体3",
+                "section": None,
+                "chapter": "纪年对照表及序章",
+                "content": preface,
+            })
+        rest = text[m_first_part.start():]
     else:
         rest = text
 
-    # --- 各部 + 【小节】 ---
-    # 先分割各大部分，只提取"第一部"、"第二部"等作为section
-    parts = re.split(r"(第[一二三四五六]部)\s*[^\n]*\n", rest)
-    for i in range(1, len(parts), 2):
-        section = parts[i].strip()      # 只保留"第一部"、"第二部"等
-        part_body = parts[i + 1]
+    # 外层：第X部
+    parts = re.split(r"(?m)^(第[一二三四五六七八九十]+部)\s*\n", rest)
+    prefix = parts[0].strip()
 
-        # 用【...】分小节，这些才是真正的chapter
-        sub_parts = re.split(r"(【[^】]{3,80}】\s*)", part_body)
+    for i in range(1, len(parts), 2):
+        section = parts[i].strip()      # “第一部”“第二部”...
+        body = parts[i + 1]
+
+        if i == 1 and prefix:
+            body = prefix + "\n" + body
+
+        # 内层：每一部里的 【小节】 标题
+        # 允许前面有空格 / 全角空格
+        sub_parts = re.split(r"(?m)^([ \t　]*【[^】]+】)\s*\n", body)
+
+        # 小节前面的内容，作为这一部的“序”
+        pre_chapter = sub_parts[0].strip()
+        if pre_chapter:
+            docs.append({
+                "book": "三体3",
+                "section": section,
+                "chapter": section + "·序",
+                "content": pre_chapter,
+            })
+
+        # 遍历所有 【标题】
         for j in range(1, len(sub_parts), 2):
-            sub_head = sub_parts[j]
-            sub_body = sub_parts[j + 1]
-            # 确保完全移除【】符号，特别是末尾的】
-            chapter_title = sub_head.replace("【", "").replace("】", "").strip(" \n")
-            content = sub_body.strip()
+            head = sub_parts[j].strip()
+            content = sub_parts[j + 1] if j + 1 < len(sub_parts) else ""
+            title = head.strip("【】 \n　")  # 去掉中英文空格和【】
 
             docs.append({
                 "book": "三体3",
                 "section": section,
-                "chapter": chapter_title,
-                "content": content,
+                "chapter": title,
+                "content": content.strip(),
             })
 
     return docs
 
 
+# ====== 总入口 ======
+
 def load_all_docs() -> List[Dict]:
-    """从 threebody1.txt 中切出三体1+2+3 的所有章节 doc"""
-    raw = open(ALL_FILE, encoding="utf-8").read()
+    with open(ALL_FILE, "r", encoding="utf-8") as f:
+        full = f.read()
 
-    pos1 = raw.find("三体1")
-    pos2 = raw.find("三体2")
-    pos3 = raw.find("三体3")
+    # 粗切成三部
+    idx1 = full.find("三体1")
+    idx2 = full.find("三体2")
+    idx3 = full.find("三体3")
 
-    book1_txt = raw[pos1:pos2]
-    book2_txt = raw[pos2:pos3]
-    book3_txt = raw[pos3:]
+    b1 = full[idx1:idx2]
+    b2 = full[idx2:idx3]
+    b3 = full[idx3:]
 
     docs: List[Dict] = []
-    docs += split_book1(book1_txt)
-    docs += split_book2(book2_txt)
-    docs += split_book3(book3_txt)
-    
-    # 为所有章节添加唯一的id编码
-    for i, doc in enumerate(docs):
-        # 使用格式：threebody_{序号}
+    docs += split_book1(b1)
+    docs += split_book2(b2)
+    docs += split_book3(b3)
+
+    # 加一下 id
+    for i, doc in enumerate(docs, start=1):
         doc["id"] = i
-    
+
     return docs
 
 
 if __name__ == "__main__":
     docs = load_all_docs()
     print("Total docs:", len(docs))
-    # 简单看几条
     for d in docs[:5]:
         print(d["book"], d["chapter"][:30])
+
+    import json
     with open("threebody.json", "w", encoding="utf-8") as f:
-        import json
         json.dump(docs, f, ensure_ascii=False, indent=2)
