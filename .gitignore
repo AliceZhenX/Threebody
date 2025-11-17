@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+
+# VSCode
+.vscode/
+
+# Lucene 索引
+index/
