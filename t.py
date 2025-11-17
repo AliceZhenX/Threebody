@@ -3,7 +3,7 @@ import json
 with open("threebody.json", "r", encoding="utf-8") as f:
     docs = json.load(f)
 
-keyword = "蓝色空间号"
+keyword = "歌者"
 
 cnt = 0
 for d in docs:
@@ -16,7 +16,7 @@ for d in docs:
 print(f"包含{keyword}的章节数：", cnt)
 
 
-keyword = "歌者"
+
 found = False
 count = 0
 
@@ -33,3 +33,19 @@ with open("threebody.txt", "r", encoding="utf-8") as f:
 
 if not found:
     print("没有找到关键词")
+
+
+def normalize(s: str) -> str:
+    # 简单处理一下回车和空格，避免无意义的差异
+    return s.replace("\r", "")
+
+with open("threebody.txt", "r", encoding="utf-8") as f:
+    raw = normalize(f.read())
+
+import json
+with open("threebody.json", "r", encoding="utf-8") as f:
+    docs = json.load(f)
+
+joined = normalize("".join(d["content"] for d in docs))
+
+print("len(raw) =", len(raw), "len(joined) =", len(joined))

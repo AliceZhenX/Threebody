@@ -36,7 +36,7 @@ def simple_tokenizer(text: str):
 
 
 def get_tokenizer():
-    return jieba_tokenizer if HAS_JIEBA else simple_tokenizer
+    return jieba_tokenizer
 
 
 # 2. PyLucene 初始化 & 建索引
@@ -84,10 +84,7 @@ def create_lucene_index(json_path: str, index_dir: str = "index"):
     writer = IndexWriter(directory, config)
 
     tokenizer = get_tokenizer()
-    if HAS_JIEBA:
-        print("[Lucene] 建索引时使用 jieba 分词")
-    else:
-        print("[Lucene] 建索引时使用简单分词")
+  
 
     for i, d in enumerate(docs):
         doc = Document()
