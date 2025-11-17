@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>《三体》搜索</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>:root {
+      color-scheme: dark;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #1f2937 0, #020617 55%, #000 100%);
+      color: #e5e7eb;
+    }
+    #starfield {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -1; /* 放在内容后面 */
+      pointer-events: none; /* 确保不干扰页面交互 */
+    }
+    
+    /* 页面内容容器 */
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 16px 40px;
+      position: relative;
+      z-index: 1; /* 确保内容在星空背景之上 */
+    }
+    /* .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 16px 40px;
+    } */
+    .header {
+      margin-bottom: 24px;
+    }
+    .title {
+      font-size: 28px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .title-badge {
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #7dd3fc;
+    }
+    .subtitle {
+      margin-top: 4px;
+      font-size: 13px;
+      color: #9ca3af;
+    }
+    .search-bar {
+      margin-top: 16px;
+      display: flex;
+      gap: 8px;
+    }
+    .search-input {
+      flex: 1;
+      padding: 10px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.6);
+      background: rgba(15, 23, 42, 0.85);
+      color: #e5e7eb;
+      outline: none;
+      transition: all 0.3s ease;
+    }
+    .search-input:focus {
+      border-color: rgba(56, 189, 248, 0.8);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+    }
+    .search-input::placeholder {
+      color: #6b7280;
+    }
+    .search-button {
+      padding: 10px 20px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.6);
+      background: none;
+      color: #7dd3fc;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .search-button::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+      transition: left 0.5s;
+    }
+    .search-button:hover::before {
+      left: 100%;
+    }
+    .search-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 15px rgba(56, 189, 248, 0.4);
+    }
+    .search-button:disabled {
+      opacity: 0.6;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 2.2fr) minmax(260px, 1fr);
+      gap: 18px;
+      align-items: flex-start;
+    }
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+    
+    /* 卡片美化 */
+    .card {
+      background: rgba(15, 23, 42, 0.85);
+      border-radius: 18px;
+      border: 1px solid rgba(56, 189, 248, 0.15);
+      padding: 14px 16px 18px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s ease;
+    }
+    
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.6), transparent);
+    }
+    
+    .card::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: radial-gradient(circle at 30% 20%, rgba(56, 189, 248, 0.05) 0%, transparent 70%);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      z-index: -1;
+    }
+    
+    .card:hover {
+      border-color: rgba(56, 189, 248, 0.3);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(56, 189, 248, 0.1);
+      transform: translateY(-3px);
+    }
+    
+    .card:hover::after {
+      opacity: 1;
+    }
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      position: relative;
+    }
+    
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      background: linear-gradient(90deg, #38bdf8, #7dd3fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      position: relative;
+      padding-left: 12px;
+    }
+    
+    .card-title::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 4px;
+      height: 16px;
+      background: linear-gradient(to bottom, #38bdf8, #7dd3fc);
+      border-radius: 2px;
+    }
+    
+    .card-tag {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #7dd3fc;
+    }
+    
+    .results-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 6px;
+      /* max-height: 70vh; */
+      overflow: auto;
+      padding-right: 4px;
+    }
+    
+    .chapter {
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(75, 85, 99, 0.8);
+      background: rgba(15, 23, 42, 0.95);
+      transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .chapter::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 3px;
+      height: 100%;
+      background: linear-gradient(to bottom, rgba(56, 189, 248, 0), rgba(56, 189, 248, 0.6), rgba(56, 189, 248, 0));
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    
+    .chapter:hover {
+      border-color: rgba(56, 189, 248, 0.4);
+      background: rgba(30, 41, 59, 0.6);
+      transform: translateX(3px);
+    }
+    
+    .chapter:hover::before {
+      opacity: 1;
+    }
+    
+    .chapter-header {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    
+    .chapter-title {
+      font-weight: 500;
+      color: #e5e7eb;
+    }
+    
+    .chapter-score {
+      font-size: 11px;
+      opacity: 0.8;
+      background: rgba(56, 189, 248, 0.15);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    
+    .paragraph {
+      font-size: 13px;
+      line-height: 1.7;
+      color: #d1d5db;
+      margin-top: 6px;
+    }
+    
+    .paragraph + .paragraph {
+      border-top: 1px dashed rgba(55, 65, 81, 0.9);
+      padding-top: 6px;
+      margin-top: 8px;
+    }
+    
+    mark {
+      background: rgba(251, 191, 36, 0.12);
+      color: #fde68a;
+      padding: 0 1px;
+      border-radius: 4px;
+      box-shadow: 0 0 0 1px rgba(252, 211, 77, 0.35);
+    }
+    
+    .summary-box {
+      position: sticky;
+      top: 16px;
+    }
+    
+    .summary-content {
+      font-size: 13px;
+      line-height: 1.7;
+      color: #e5e7eb;
+      white-space: pre-wrap;
+      position: relative;
+    }
+    
+    .summary-placeholder {
+      color: #6b7280;
+    }
+    
+    .pill-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 6px;
+    }
+    
+    .pill {
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.6);
+      color: #9ca3af;
+      transition: all 0.2s ease;
+    }
+    
+    .pill:hover {
+      border-color: rgba(56, 189, 248, 0.6);
+      color: #7dd3fc;
+      background: rgba(56, 189, 248, 0.1);
+    }
+    
+    .status {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 6px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: rgba(30, 41, 59, 0.5);
+      border-left: 3px solid rgba(56, 189, 248, 0.5);
+    }
+    
+    .status-error {
+      color: #fca5a5;
+      border-left-color: rgba(248, 113, 113, 0.5);
+      background: rgba(127, 29, 29, 0.2);
+    }
+    
+    /* 滚动条美化 */
+    .results-list::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    .results-list::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 3px;
+    }
+    
+    .results-list::-webkit-scrollbar-thumb {
+      background: rgba(56, 189, 248, 0.4);
+      border-radius: 3px;
+    }
+    
+    .results-list::-webkit-scrollbar-thumb:hover {
+      background: rgba(56, 189, 248, 0.6);
+    }
+    
+    /* 角标装饰 */
+    .card::before,
+    .card::after {
+      content: '';
+      position: absolute;
+      width: 20px;
+      height: 20px;
+    }
+    
+    .card::before {
+      top: 10px;
+      right: 10px;
+      border-top: 1px solid rgba(56, 189, 248, 0.3);
+      border-right: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 0 10px 0 0;
+    }
+    
+    .card::after {
+      bottom: 10px;
+      left: 10px;
+      border-bottom: 1px solid rgba(56, 189, 248, 0.3);
+      border-left: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 0 0 0 10px;
+    }</style>
+</head>
+<body>
+  <div id="starfield"></div>
+  <div class="page">
+    <header class="header">
+      <div class="title">
+        三体搜索
+        <span class="title-badge">Lucene + LLM</span>
+      </div>
+      <div class="subtitle">
+        输入关键词，左侧查看相关章节与段落，右侧由大模型根据上下文给出针对性总结。
+      </div>
+      <form id="search-form" class="search-bar">
+        <input
+          id="query"
+          class="search-input"
+          type="text"
+          placeholder="例如：红岸基地、阶梯计划、黑暗森林法则…"
+          autocomplete="off"
+        />
+        <button id="search-btn" class="search-button" type="submit">
+          搜索并总结
+        </button>
+      </form>
+    </header>
+
+    <main class="layout">
+      <!-- 左侧：检索结果 -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">检索结果</div>
+          <div class="card-tag" id="results-tag">等待查询…</div>
+        </div>
+        <div class="pill-row">
+          <span class="pill">章节 & 段落级命中</span>
+          <span class="pill">关键词高亮</span>
+        </div>
+        <div id="results" class="results-list"></div>
+        <div id="status" class="status"></div>
+      </section>
+
+      <!-- 右侧：LLM 总结侧栏 -->
+      <aside class="card summary-box">
+        <div class="card-header">
+          <div class="card-title">LLM 总结</div>
+          <div class="card-tag">侧边解读</div>
+        </div>
+        <div id="summary" class="summary-content summary-placeholder">
+          输入查询后，这里会出现结合当前段落的结构化总结与解读。
+        </div>
+      </aside>
+    </main>
+  </div>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    function initStarfield() {
+      const container = document.getElementById('starfield');
+      //初始化Three.js场景
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      container.appendChild(renderer.domElement);
+      
+      // 设置相机位置
+      camera.position.z = 500;
+      
+      // 鼠标位置
+      const mouse = {
+          x: 0,
+          y: 0
+      };
+
+      // 监听鼠标移动
+      document.addEventListener('mousemove', (event) => {
+          mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+          mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+      });
+
+      // 创建星空背景粒子
+      function createStars() {
+          const starGeometry = new THREE.BufferGeometry();
+          const starMaterial = new THREE.PointsMaterial({
+              color: 0xffffff,
+              size: 1.5,
+              transparent: true,
+              opacity: 0.8
+          });
+
+          const starVertices = [];
+          for (let i = 0; i < 10000; i++) {
+              const x = (Math.random() - 0.5) * 2000;
+              const y = (Math.random() - 0.5) * 2000;
+              const z = (Math.random() - 0.5) * 2000;
+              starVertices.push(x, y, z);
+          }
+
+          starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+          const stars = new THREE.Points(starGeometry, starMaterial);
+          scene.add(stars);
+
+          return stars;
+      }
+
+      // 创建悬浮粒子
+      function createFloatingParticles() {
+          const particleCount = 5000;
+          const particles = new THREE.BufferGeometry();
+          const particlePositions = new Float32Array(particleCount * 3);
+          const particleColors = new Float32Array(particleCount * 3);
+          const particleSizes = new Float32Array(particleCount);
+
+          // 初始化粒子位置、颜色和大小
+          const color = new THREE.Color();
+          for (let i = 0; i < particleCount; i++) {
+              const i3 = i * 3;
+
+              // 位置 - 球形分布
+              const radius = 500;
+              const theta = Math.random() * Math.PI * 2;
+              const phi = Math.acos((Math.random() * 2) - 1);
+
+              particlePositions[i3] = radius * Math.sin(phi) * Math.cos(theta);
+              particlePositions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+              particlePositions[i3 + 2] = radius * Math.cos(phi);
+
+              // 颜色 - 随机蓝色调
+              color.setHSL(0.6 + Math.random() * 0.1, 0.8, 0.5 + Math.random() * 0.2);
+              particleColors[i3] = color.r;
+              particleColors[i3 + 1] = color.g;
+              particleColors[i3 + 2] = color.b;
+
+              // 大小
+              particleSizes[i] = Math.random() * 3 + 1;
+          }
+
+          particles.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+          particles.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
+          particles.setAttribute('size', new THREE.BufferAttribute(particleSizes, 1));
+
+          const particleMaterial = new THREE.PointsMaterial({
+              size: 2,
+              vertexColors: true,
+              transparent: true,
+              opacity: 0.8,
+              sizeAttenuation: true
+          });
+
+          const particleSystem = new THREE.Points(particles, particleMaterial);
+          scene.add(particleSystem);
+
+          return {
+              geometry: particles,
+              material: particleMaterial,
+              system: particleSystem
+          };
+      }
+
+      // 创建粒子
+      const stars = createStars();
+      const floatingParticles = createFloatingParticles();
+
+      // 鼠标交互强度
+      let mouseStrength = 0;
+      const maxMouseStrength = 0.1;
+
+      // 粒子原始位置
+      const originalPositions = floatingParticles.geometry.attributes.position.array.slice();
+
+      // 时间变量用于动画
+      let time = 0;
+
+      // 动画函数
+      function animate() {
+          requestAnimationFrame(animate);
+
+          time += 0.01;
+
+          // 更新鼠标交互强度
+          mouseStrength += (maxMouseStrength - mouseStrength) * 0.5;
+
+          // 更新悬浮粒子位置
+          const positions = floatingParticles.geometry.attributes.position.array;
+          const sizes = floatingParticles.geometry.attributes.size.array;
+
+          for (let i = 0; i < positions.length; i += 3) {
+              const i3 = i;
+              const originalX = originalPositions[i3];
+              const originalY = originalPositions[i3 + 1];
+              const originalZ = originalPositions[i3 + 2];
+
+              // 添加轻微浮动效果
+              const floatX = Math.sin(time + originalX * 0.1) * 5;
+              const floatY = Math.cos(time + originalY * 0.1) * 5;
+              const floatZ = Math.sin(time + originalZ * 0.1) * 5;
+
+              // 计算鼠标影响
+              const dx = originalX - mouse.x * 100;
+              const dy = originalY - mouse.y * 100;
+              const distance = Math.sqrt(dx * dx + dy * dy);
+              const influence = Math.max(0, 1 - distance / 200) * mouseStrength;
+
+              // 应用浮动和鼠标影响
+              positions[i3] = originalX + floatX + (mouse.x * 100 - originalX) * influence;
+              positions[i3 + 1] = originalY + floatY + (mouse.y * 100 - originalY) * influence;
+              positions[i3 + 2] = originalZ + floatZ;
+
+              // 根据距离调整粒子大小
+              sizes[i / 3] = Math.max(1, 3 - distance / 100);
+          }
+
+          floatingParticles.geometry.attributes.position.needsUpdate = true;
+          floatingParticles.geometry.attributes.size.needsUpdate = true;
+
+          // 旋转星空背景
+          stars.rotation.x += 0.0001;
+          stars.rotation.y += 0.0002;
+
+          // 渲染场景
+          renderer.render(scene, camera);
+      }
+
+      // 处理窗口大小变化
+      window.addEventListener('resize', () => {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      // 点击切换粒子颜色
+      document.addEventListener('click', () => {
+          const colors = floatingParticles.geometry.attributes.color.array;
+
+          for (let i = 0; i < colors.length; i += 3) {
+              const hue = Math.random() * 0.3 + 0.5; // 蓝色到紫色范围
+              const color = new THREE.Color().setHSL(hue, 0.8, 0.5 + Math.random() * 0.2);
+
+              colors[i] = color.r;
+              colors[i + 1] = color.g;
+              colors[i + 2] = color.b;
+          }
+
+          floatingParticles.geometry.attributes.color.needsUpdate = true;
+      });
+
+      // 鼠标移动时增加交互强度
+      document.addEventListener('mousemove', () => {
+          mouseStrength = maxMouseStrength;
+      });  
+      // 开始动画
+      animate();
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initStarfield);
+    } else {
+      initStarfield();
+    }
+    
+    const form = document.getElementById("search-form");
+    const queryInput = document.getElementById("query");
+    const resultsEl = document.getElementById("results");
+    const statusEl = document.getElementById("status");
+    const summaryEl = document.getElementById("summary");
+    const resultsTag = document.getElementById("results-tag");
+    const searchBtn = document.getElementById("search-btn");
+
+    function renderResults(data) {
+      resultsEl.innerHTML = "";
+      statusEl.textContent = "";
+      if (!data.chapters || data.chapters.length === 0) {
+        resultsEl.innerHTML =
+          "<div class='status'>未找到相关段落，可以尝试换一个说法或缩小关键词。</div>";
+        resultsTag.textContent = "0 条结果";
+        return;
+      }
+      resultsTag.textContent = data.chapters.length + " 个章节";
+
+      data.chapters.forEach((ch) => {
+        const div = document.createElement("div");
+        div.className = "chapter";
+
+        const header = document.createElement("div");
+        header.className = "chapter-header";
+
+        const left = document.createElement("div");
+        left.innerHTML =
+          '<span class="chapter-title">' +
+          (ch.book || "") +
+          "</span> · " +
+          (ch.chapter || "");
+
+        const right = document.createElement("div");
+        right.className = "chapter-score";
+        right.textContent =
+          "score " + (ch.score != null ? ch.score.toFixed(3) : "-");
+
+        header.appendChild(left);
+        header.appendChild(right);
+        div.appendChild(header);
+
+        ch.paragraphs.forEach((p) => {
+          const pEl = document.createElement("div");
+          pEl.className = "paragraph";
+          pEl.innerHTML = p.html; // 服务器已经做好转义+mark
+          div.appendChild(pEl);
+        });
+
+        resultsEl.appendChild(div);
+      });
+    }
+
+    function renderSummary(text) {
+      if (!text) {
+        summaryEl.classList.add("summary-placeholder");
+        summaryEl.textContent = "未生成总结。可以尝试换一个更具体的查询。";
+      } else {
+        summaryEl.classList.remove("summary-placeholder");
+        summaryEl.textContent = text;
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const q = queryInput.value.trim();
+      if (!q) return;
+
+      searchBtn.disabled = true;
+      searchBtn.textContent = "正在检索…";
+      statusEl.textContent = "正在检索并生成总结，请稍候。";
+      resultsTag.textContent = "检索中…";
+      summaryEl.classList.add("summary-placeholder");
+      summaryEl.textContent = "模型正在阅读相关段落并生成总结…";
+
+      try {
+        const resp = await fetch("/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: q }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data.error || "请求失败");
+        }
+        renderResults(data);
+        renderSummary(data.summary);
+        statusEl.textContent = "";
+        statusEl.classList.remove("status-error");
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = "请求出错：" + err.message;
+        statusEl.classList.add("status-error");
+        resultsTag.textContent = "错误";
+      } finally {
+        searchBtn.disabled = false;
+        searchBtn.textContent = "搜索并总结";
+      }
+    });
+  </script>
+</body>
+</html>
