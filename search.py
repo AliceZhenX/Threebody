@@ -127,7 +127,9 @@ def split_sentences(raw: str) -> List[str]:
 # ========= 4. 核心函数：多粒度搜索 =========
 
 def search_multi_granularity(query: str,
-                             top_k_chapters: int = 10) -> Dict[str, Any]:
+                             top_k_chapters: int = 10,
+                             ir_query:str=None,
+                             snippet_mode:bool = False) :
     """
     输入：
       query: 用于 IR 的查询串（通常来自 LLM 的 search_query）
@@ -153,7 +155,8 @@ def search_multi_granularity(query: str,
     """
 
     # 1. 用 Lucene 检索章节（先多召回一些，再在 Python 里做简易重排）
-    q_str = tokenize_query(query)
+    q_ir = ir_query or query
+    q_str = tokenize_query(q_ir)
     lucene_query = QP.parse(q_str)
 
     max_hits = max(top_k_chapters * 3, 50)
@@ -190,8 +193,13 @@ def search_multi_granularity(query: str,
     hits = [item[2] for item in ranked[:top_k_chapters]]
 
     # 2. 章节内部多粒度匹配（句子 & 段落）
-    query_terms = get_query_terms(query)
-    pattern = re.compile("|".join(map(re.escape, query_terms))) if query_terms else None
+    if snippet_mode:
+        query_terms = [query]
+        pattern = re.compile(re.escape(query))
+    else:
+        query_terms = get_query_terms(query)
+        pattern = re.compile("|".join(map(re.escape, query_terms))) if query_terms else None
+
 
     chapter_results = []
     sentence_results = []

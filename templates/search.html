@@ -415,7 +415,42 @@
       border-bottom: 1px solid rgba(56, 189, 248, 0.3);
       border-left: 1px solid rgba(56, 189, 248, 0.3);
       border-radius: 0 0 0 10px;
-    }</style>
+    }
+    /* <!-- 其他样式根据需要继续添加 --> */
+    .subsection-title {
+      font-size: 12px;
+      color: #9ca3af;
+      margin: 4px 0 4px;
+    }
+
+    .para-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .para-item {
+      padding: 8px 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(75, 85, 99, 0.8);
+      background: rgba(15, 23, 42, 0.95);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .para-meta {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-bottom: 4px;
+    }
+
+    .chapter-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 6px;
+    }
+    </style>
 </head>
 <body>
   <div id="starfield"></div>
@@ -450,10 +485,23 @@
           <div class="card-tag" id="results-tag">等待查询…</div>
         </div>
         <div class="pill-row">
-          <span class="pill">章节 & 段落级命中</span>
-          <span class="pill">关键词高亮</span>
+          <span class="pill">相关句子</span>
+          <span class="pill">章节上下文</span>
         </div>
-        <div id="results" class="results-list"></div>
+        <div class="results-list">
+          <!-- 顶部：命中段落列表 -->
+          <div id="para-results-section">
+            <div class="subsection-title">命中句子</div>
+            <div id="para-results" class="para-list"></div>
+          </div>
+
+          <!-- 底部：章节列表 -->
+          <div id="chapter-results-section" style="margin-top: 12px;">
+            <div class="subsection-title">相关章节</div>
+            <div id="chapter-results" class="chapter-list"></div>
+          </div>  
+        </div>
+
         <div id="status" class="status"></div>
       </section>
 
@@ -679,54 +727,143 @@
     
     const form = document.getElementById("search-form");
     const queryInput = document.getElementById("query");
-    const resultsEl = document.getElementById("results");
+    // <!-- const resultsEl = document.getElementById("results"); -->
     const statusEl = document.getElementById("status");
     const summaryEl = document.getElementById("summary");
     const resultsTag = document.getElementById("results-tag");
     const searchBtn = document.getElementById("search-btn");
+    const paraSectionEl = document.getElementById("para-results-section");
+    const paraResultsEl = document.getElementById("para-results");
+    const chapterSectionEl = document.getElementById("chapter-results-section");
+    const chapterResultsEl = document.getElementById("chapter-results");
 
+
+    // <!--
+    //   function renderResults(data) {
+    //   resultsEl.innerHTML = "";
+    //   statusEl.textContent = "";
+    //   if (!data.chapters || data.chapters.length === 0) {
+    //     resultsEl.innerHTML =
+    //       "<div class='status'>未找到相关段落，可以尝试换一个说法或缩小关键词。</div>";
+    //     resultsTag.textContent = "0 条结果";
+    //     return;
+    //   }
+    //   resultsTag.textContent = data.chapters.length + " 个章节";
+
+    //   data.chapters.forEach((ch) => {
+    //     const div = document.createElement("div");
+    //     div.className = "chapter";
+
+    //     const header = document.createElement("div");
+    //     header.className = "chapter-header";
+
+    //     const left = document.createElement("div");
+    //     left.innerHTML =
+    //       '<span class="chapter-title">' +
+    //       (ch.book || "") +
+    //       "</span> · " +
+    //       (ch.chapter || "");
+
+    //     const right = document.createElement("div");
+    //     right.className = "chapter-score";
+    //     right.textContent =
+    //       "score " + (ch.score != null ? ch.score.toFixed(3) : "-");
+
+    //     header.appendChild(left);
+    //     header.appendChild(right);
+    //     div.appendChild(header);
+
+    //     ch.paragraphs.forEach((p) => {
+    //       const pEl = document.createElement("div");
+    //       pEl.className = "paragraph";
+    //       pEl.innerHTML = p.html; // 服务器已经做好转义+mark
+    //       div.appendChild(pEl);
+    //     });
+
+    //     resultsEl.appendChild(div);
+    //   });
+    // }
+    // -->
+    
     function renderResults(data) {
-      resultsEl.innerHTML = "";
+      paraResultsEl.innerHTML = "";
+      chapterResultsEl.innerHTML = "";
       statusEl.textContent = "";
-      if (!data.chapters || data.chapters.length === 0) {
-        resultsEl.innerHTML =
-          "<div class='status'>未找到相关段落，可以尝试换一个说法或缩小关键词。</div>";
-        resultsTag.textContent = "0 条结果";
-        return;
-      }
-      resultsTag.textContent = data.chapters.length + " 个章节";
+    
+      const snippets = data.top_snippets || [];
+      const chapters = data.chapters || [];
+    
+      // 统计标签用
+      const snippetCount = snippets.length;
+      const chapterCount = chapters.length;
+      document.getElementById("results-tag").textContent =
+        `${snippetCount} 句 / ${chapterCount} 章`;
 
-      data.chapters.forEach((ch) => {
+      // 1）命中段落
+      if (snippetCount === 0) {
+        paraSectionEl.style.display = "none";
+      } else {
+        paraSectionEl.style.display = "";
+        snippets.forEach((s) => {
+          const item = document.createElement("div");
+          item.className = "para-item";
+        
+          const meta = document.createElement("div");
+          meta.className = "para-meta";
+          meta.textContent = `[${s.book || ""} · ${s.chapter || ""}] s${s.index}`;
+        
+          const body = document.createElement("div");
+          body.className = "para-body";
+          body.innerHTML = s.html; // 已由后端做好 escape + <mark>
+          
+          item.appendChild(meta);
+          item.appendChild(body);
+          paraResultsEl.appendChild(item);
+        });
+      }
+    
+      // 2）相关章节
+      if (chapterCount === 0) {
+        chapterSectionEl.style.display = "none";
+        if (paraCount === 0) {
+          statusEl.textContent = "未找到相关段落，可以尝试换一个说法或缩小关键词。";
+        }
+        return;
+      } else {
+        chapterSectionEl.style.display = "";
+      }
+
+      chapters.forEach((ch) => {
         const div = document.createElement("div");
         div.className = "chapter";
-
+      
         const header = document.createElement("div");
         header.className = "chapter-header";
-
+      
         const left = document.createElement("div");
         left.innerHTML =
           '<span class="chapter-title">' +
           (ch.book || "") +
           "</span> · " +
           (ch.chapter || "");
-
+          
         const right = document.createElement("div");
         right.className = "chapter-score";
         right.textContent =
           "score " + (ch.score != null ? ch.score.toFixed(3) : "-");
-
+          
         header.appendChild(left);
         header.appendChild(right);
         div.appendChild(header);
-
+          
         ch.paragraphs.forEach((p) => {
           const pEl = document.createElement("div");
           pEl.className = "paragraph";
-          pEl.innerHTML = p.html; // 服务器已经做好转义+mark
+          pEl.innerHTML = p.html;
           div.appendChild(pEl);
         });
-
-        resultsEl.appendChild(div);
+      
+        chapterResultsEl.appendChild(div);
       });
     }
 
