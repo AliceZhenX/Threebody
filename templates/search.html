@@ -117,6 +117,26 @@
       transform: none;
       box-shadow: none;
     }
+    .summary-snippet-title {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-bottom: 4px;
+    }
+
+    .summary-snippet {
+      font-size: 13px;
+      line-height: 1.7;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px dashed rgba(148, 163, 184, 0.6);
+      margin-bottom: 8px;
+    }
+
+    .summary-main {
+      font-size: 13px;
+      line-height: 1.7;
+    }
     .layout {
       display: grid;
       grid-template-columns: minmax(0, 2.2fr) minmax(260px, 1fr);
@@ -710,16 +730,45 @@
       });
     }
 
-    function renderSummary(text) {
+    function renderSummary(text, llmError, exactAnswer, mode) {
+      summaryEl.innerHTML = "";
+      summaryEl.classList.remove("summary-placeholder");
+
+      // LLM 报错
+      if (llmError) {
+        const err = document.createElement("div");
+        err.className = "summary-main";
+        err.textContent = "LLM 调用失败：" + llmError;
+        summaryEl.appendChild(err);
+        return;
+      }
+    
+      // 精确原文模式下，先展示“原文摘录”
+      if (exactAnswer) {
+        const title = document.createElement("div");
+        title.className = "summary-snippet-title";
+        title.textContent = "原文摘录";
+      
+        const snippet = document.createElement("div");
+        snippet.className = "summary-snippet";
+        snippet.textContent = exactAnswer;  // 用 textContent 自动转义
+      
+        summaryEl.appendChild(title);
+        summaryEl.appendChild(snippet);
+      }
+    
+      const main = document.createElement("div");
+      main.className = "summary-main";
+    
       if (!text) {
         summaryEl.classList.add("summary-placeholder");
-        summaryEl.textContent = "未生成总结。可以尝试换一个更具体的查询。";
+        main.textContent = "未生成总结。可以尝试换一个更具体的问题。";
       } else {
-        summaryEl.classList.remove("summary-placeholder");
-        summaryEl.textContent = text;
+        main.textContent = text;
       }
-    }
-
+    
+      summaryEl.appendChild(main);
+    }   
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const q = queryInput.value.trim();
@@ -743,7 +792,8 @@
           throw new Error(data.error || "请求失败");
         }
         renderResults(data);
-        renderSummary(data.summary);
+        // renderSummary(data.summary, data.llm_error, data.exact_answer, data.mode);
+        renderSummary(data.summary, data.llm_error, data.exact_answer, data.analysis);
         statusEl.textContent = "";
         statusEl.classList.remove("status-error");
       } catch (err) {
