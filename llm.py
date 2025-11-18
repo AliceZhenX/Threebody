@@ -13,7 +13,7 @@ import re
 from zhipuai import ZhipuAI
 
 # 用你的实际 API Key（建议和 use.py 保持一致）
-client = ZhipuAI(api_key="dc189be1ea7948e8b7f17b1250c3747a.tKs0JBIe9Q4DS9mr")
+client = ZhipuAI(api_key="my key")
 
 
 def _detect_mode(query: str) -> str:
