@@ -12,7 +12,7 @@ import json
 from zhipuai import ZhipuAI
 
 # TODO: 换成你自己的 key 或改成从环境变量读取
-client = ZhipuAI(api_key="dc189be1ea7948e8b7f17b1250c3747a.tKs0JBIe9Q4DS9mr")
+client = ZhipuAI(api_key="my key")
 
 
 # ========= 1. 查询分析：7 种场景都走这里 =========
