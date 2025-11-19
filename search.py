@@ -28,6 +28,14 @@ from org.apache.lucene.analysis.core import WhitespaceAnalyzer
 from org.apache.lucene.queryparser.classic import QueryParser
 
 
+USER_DICT = "vocab.txt"
+if os.path.exists(USER_DICT):
+    print(f"[jieba] 加载自定义词典: {USER_DICT}")
+    jieba.load_userdict(USER_DICT)
+else:
+    print(f"[jieba] 未找到自定义词典 {USER_DICT}，仅使用默认词典")
+
+
 # ========= 1. 初始化 Lucene Searcher =========
 
 def init_searcher(index_dir: str = "index") -> IndexSearcher:
@@ -144,8 +152,8 @@ def search_multi_granularity(query: str,
             "book": ...,
             "chapter": ...,
             "score": Lucene 打分,
-            "hit_sentences": [ { "index": i, "text": "句子文本" }, ... ],
-            "hit_paragraphs": [ { "index": j, "text": "段落文本" }, ... ],
+            "hit_sentences": [ { "index": i, "text": "句子文本", "match_score": 匹配分数 }, ... ],
+            "hit_paragraphs": [ { "index": j, "text": "段落文本", "match_score": 匹配分数 }, ... ],
           },
           ...
         ],
@@ -155,7 +163,7 @@ def search_multi_granularity(query: str,
     """
 
     # 1. 用 Lucene 检索章节（先多召回一些，再在 Python 里做简易重排）
-    q_ir = ir_query or query
+    q_ir = ir_query or query #ir_query 中包含原查询
     q_str = tokenize_query(q_ir)
     lucene_query = QP.parse(q_str)
 
@@ -200,7 +208,6 @@ def search_multi_granularity(query: str,
         query_terms = get_query_terms(query)
         pattern = re.compile("|".join(map(re.escape, query_terms))) if query_terms else None
 
-
     chapter_results = []
     sentence_results = []
     paragraph_results = []
@@ -219,22 +226,41 @@ def search_multi_granularity(query: str,
         paragraphs = split_paragraphs(raw_content)
         sentences = split_sentences(raw_content)
 
+        # 改动1: 为段落计算匹配分数并排序
         hit_paras = []
-        hit_sents = []
-
         for idx, para in enumerate(paragraphs):
-            if any(term in para for term in query_terms):
+            # 计算匹配分数：包含的关键词数量
+            match_count = sum(1 for term in query_terms if term in para)
+            if match_count > 0:
                 text = para
                 if pattern:
                     text = pattern.sub(lambda m: f"[{m.group(0)}]", text)
-                hit_paras.append({"index": idx, "text": text})
+                hit_paras.append({
+                    "index": idx, 
+                    "text": text, 
+                    "match_score": match_count  # 记录匹配分数
+                })
+        
+        # 按匹配分数降序排列，优先显示匹配度高的段落
+        hit_paras.sort(key=lambda x: x["match_score"], reverse=True)
 
+        # 改动2: 为句子计算匹配分数并排序
+        hit_sents = []
         for idx, sent in enumerate(sentences):
-            if any(term in sent for term in query_terms):
+            # 计算匹配分数：包含的关键词数量
+            match_count = sum(1 for term in query_terms if term in sent)
+            if match_count > 0:
                 text = sent
                 if pattern:
                     text = pattern.sub(lambda m: f"[{m.group(0)}]", text)
-                hit_sents.append({"index": idx, "text": text})
+                hit_sents.append({
+                    "index": idx, 
+                    "text": text, 
+                    "match_score": match_count  # 记录匹配分数
+                })
+        
+        # 按匹配分数降序排列，优先显示匹配度高的句子
+        hit_sents.sort(key=lambda x: x["match_score"], reverse=True)
 
         chapter_entry = {
             "doc_id": doc_id,
@@ -256,13 +282,16 @@ def search_multi_granularity(query: str,
             entry.update({"doc_id": doc_id, "book": book, "chapter": chapter_title})
             paragraph_results.append(entry)
 
+    # 改动3: 全局结果也按匹配分数排序
+    sentence_results.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+    paragraph_results.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+
     return {
         "query": query,
         "chapters": chapter_results,
         "sentences": sentence_results,
         "paragraphs": paragraph_results,
     }
-
 
 # ========= 5. 简单命令行测试 =========
 
