@@ -79,6 +79,13 @@ STOPWORDS = set("""
 """.split())
 STOPWORDS.update({"什么", "怎样", "怎么", "如何", "为什么", "为何", "谁"})
 
+USER_DICT = "vocab.txt"
+if os.path.exists(USER_DICT):
+    print(f"[jieba] 加载自定义词典: {USER_DICT}")
+    jieba.load_userdict(USER_DICT)
+else:
+    print(f"[jieba] 未找到自定义词典 {USER_DICT}，仅使用默认词典")
+
 
 def get_query_terms(text: str, max_terms: int = 4) -> List[str]:
     """
