@@ -267,7 +267,7 @@ def api_search():
 
     # 如果改写后的检索一个段落都没有命中，则回退用原始 query 再搜一遍
     if not any(ch.get("hit_paragraphs") for ch in res.get("chapters", [])) and search_query.strip() != query.strip():
-        res = run_ir(query)
+        res = run_ir(query,search_query)
 
     # 4. 构造给前端的章节列表 & 给 LLM 的段落列表
     chapters_for_frontend = []
@@ -356,9 +356,11 @@ def api_search():
                 f"用户问题：{query}\n\n"
                 "下面是小说《三体》中和该问题最相关的一些原文句子：\n"
                 f"{context}\n\n"
-                "重要：你只能根据这些原文句子来回答问题，"
-                "不要使用你对小说的记忆或任何外部知识。"
-                "如果这些句子不足以回答，请说明“原文片段不足以得出完整答案”，不要猜测。"
+                "请综合这些原文片段，尽量给出一个完整、连贯的回答。"
+                "你可以结合你对《三体》三部曲整体剧情的理解做合理补充，"
+                "但不要与这些原文片段的事实明显矛盾。"
+                "如果某个细节在原文中完全没有体现，可以语气委婉地说明这一点，"
+                "但不要频繁强调“原文不足以回答”，而是尽量把能回答的部分说清楚。"
             )
 
         else:

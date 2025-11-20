@@ -143,12 +143,14 @@ def split_sentences(raw: str) -> List[str]:
 
 def search_multi_granularity(query: str,
                              top_k_chapters: int = 10,
-                             ir_query:str=None,
-                             snippet_mode:bool = False) :
+                             ir_query: str = None,
+                             snippet_mode: bool = False):
     """
     输入：
       query: 用于 IR 的查询串（通常来自 LLM 的 search_query）
       top_k_chapters: 召回多少个章节
+      ir_query: 用于 Lucene 的检索串（可以和 query 不同，一般是 query + 扩展词）
+      snippet_mode: 是否是“原文片段/snippet 模式”
 
     输出结构：
       {
@@ -170,11 +172,14 @@ def search_multi_granularity(query: str,
     """
 
     # 1. 用 Lucene 检索章节（先多召回一些，再在 Python 里做简易重排）
-    q_ir = ir_query or query #ir_query 中包含原查询
+    q_ir = ir_query or query  # ir_query 中包含原查询及扩展词
     q_str = tokenize_query(q_ir)
     lucene_query = QP.parse(q_str)
 
+    # 根据章节数量限制 max_hits，避免每次多拉太多
     max_hits = max(top_k_chapters * 3, 50)
+    max_hits = min(max_hits, len(DOC_BY_ID))
+
     hits = SEARCHER.search(lucene_query, max_hits).scoreDocs
 
     raw_query = (query or "").strip()
@@ -188,6 +193,7 @@ def search_multi_granularity(query: str,
     for hit in hits:
         lucene_doc = SEARCHER.doc(hit.doc)
         doc_id = lucene_doc.get("id")
+
         raw_content = ""
         if doc_id in DOC_BY_ID:
             raw_content = DOC_BY_ID[doc_id].get("content", "") or ""
@@ -208,10 +214,23 @@ def search_multi_granularity(query: str,
     hits = [item[2] for item in ranked[:top_k_chapters]]
 
     # 2. 章节内部多粒度匹配（句子 & 段落）
+    # snippet 模式：用关键词决定命中，用整句 phrase 和第一个关键词大幅加权
     if snippet_mode:
-        query_terms = [query]
-        pattern = re.compile(re.escape(query))
+        phrase = query.strip()
+        base_terms = get_query_terms(query)
+        query_terms = base_terms if base_terms else ([phrase] if phrase else [])
+        core_term = query_terms[0] if query_terms else ""   # ★ 第一个关键词，当作“虫子”这类核心词
+
+        # 高亮时同时高亮整句和关键词
+        highlight_terms = []
+        if phrase:
+            highlight_terms.append(phrase)
+        highlight_terms.extend(base_terms)
+        highlight_terms = [t for t in highlight_terms if t]
+        pattern = re.compile("|".join(map(re.escape, highlight_terms))) if highlight_terms else None
     else:
+        phrase = ""
+        core_term = ""
         query_terms = get_query_terms(query)
         pattern = re.compile("|".join(map(re.escape, query_terms))) if query_terms else None
 
@@ -233,40 +252,63 @@ def search_multi_granularity(query: str,
         paragraphs = split_paragraphs(raw_content)
         sentences = split_sentences(raw_content)
 
-        # 改动1: 为段落计算匹配分数并排序
+        # 段落匹配
         hit_paras = []
         for idx, para in enumerate(paragraphs):
-            # 计算匹配分数：包含的关键词数量
-            match_count = sum(1 for term in query_terms if term in para)
-            if match_count > 0:
-                text = para
-                if pattern:
-                    text = pattern.sub(lambda m: f"[{m.group(0)}]", text)
-                hit_paras.append({
-                    "index": idx, 
-                    "text": text, 
-                    "match_score": match_count  # 记录匹配分数
-                })
-        
-        # 按匹配分数降序排列，优先显示匹配度高的段落
+            # 基于关键词的基础分：词越长权重稍高
+            match_score = 0.0
+            for term in query_terms:
+                if term and term in para:
+                    w = len(term)
+                    # snippet 模式下，核心词（如“虫子”）额外提高权重
+                    if snippet_mode and core_term and term == core_term:
+                        w *= 3
+                    match_score += w
+
+            if match_score <= 0:
+                continue
+
+            # 整句 snippet 出现，再额外加一大笔分，保证排到最前
+            if snippet_mode and phrase and phrase in para:
+                match_score += 5 * len(phrase)
+
+            text = para
+            if pattern:
+                text = pattern.sub(lambda m: f"[{m.group(0)}]", text)
+            hit_paras.append({
+                "index": idx,
+                "text": text,
+                "match_score": match_score,
+            })
+
         hit_paras.sort(key=lambda x: x["match_score"], reverse=True)
 
-        # 改动2: 为句子计算匹配分数并排序
+        # 句子匹配
         hit_sents = []
         for idx, sent in enumerate(sentences):
-            # 计算匹配分数：包含的关键词数量
-            match_count = sum(1 for term in query_terms if term in sent)
-            if match_count > 0:
-                text = sent
-                if pattern:
-                    text = pattern.sub(lambda m: f"[{m.group(0)}]", text)
-                hit_sents.append({
-                    "index": idx, 
-                    "text": text, 
-                    "match_score": match_count  # 记录匹配分数
-                })
-        
-        # 按匹配分数降序排列，优先显示匹配度高的句子
+            match_score = 0.0
+            for term in query_terms:
+                if term and term in sent:
+                    w = len(term)
+                    if snippet_mode and core_term and term == core_term:
+                        w *= 3
+                    match_score += w
+
+            if match_score <= 0:
+                continue
+
+            if snippet_mode and phrase and phrase in sent:
+                match_score += 5 * len(phrase)
+
+            text = sent
+            if pattern:
+                text = pattern.sub(lambda m: f"[{m.group(0)}]", text)
+            hit_sents.append({
+                "index": idx,
+                "text": text,
+                "match_score": match_score,
+            })
+
         hit_sents.sort(key=lambda x: x["match_score"], reverse=True)
 
         chapter_entry = {
@@ -289,7 +331,7 @@ def search_multi_granularity(query: str,
             entry.update({"doc_id": doc_id, "book": book, "chapter": chapter_title})
             paragraph_results.append(entry)
 
-    # 改动3: 全局结果也按匹配分数排序
+    # 全局结果按匹配分数排序
     sentence_results.sort(key=lambda x: x.get("match_score", 0), reverse=True)
     paragraph_results.sort(key=lambda x: x.get("match_score", 0), reverse=True)
 
