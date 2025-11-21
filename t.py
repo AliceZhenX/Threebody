@@ -3,7 +3,10 @@ import json
 with open("threebody.json", "r", encoding="utf-8") as f:
     docs = json.load(f)
 
+
+
 keyword = "歌者"
+
 
 cnt = 0
 for d in docs:

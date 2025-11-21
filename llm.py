@@ -1,93 +1,213 @@
 # llm.py
 # -*- coding: utf-8 -*-
 """
-大模型回答模块：
-- 只根据用户输入的 query 来回答
-- 如果像问题：回答问题
-- 如果像关键词/短语：解释该人物/概念/事件
-- 不依赖检索到的段落，不输出任何标题或花哨格式
+大模型模块：
+- analyze_query：结构化理解用户查询（keyword / question / snippet + intent）
+- summarize_with_llm：根据 prompt 生成回答（由 app.py 构造 prompt）
 """
 
-from typing import List, Dict
-import re
+from typing import Dict, Any
+import json
+
 from zhipuai import ZhipuAI
+
 
 # 用你的实际 API Key（建议和 use.py 保持一致）
 client = ZhipuAI(api_key="my key")
 
 
-def _detect_mode(query: str) -> str:
+# ========= 1. 查询分析：7 种场景都走这里 =========
+
+ANALYZE_SYSTEM_PROMPT = """
+你是一个“查询理解助手”，只负责分析用户对《三体》三部曲的查询，不直接回答问题。
+
+用户的查询 q 可能属于以下几类：
+1) 单个关键词：例如 “黑暗森林”、“歌者”、“歌者歌谣”
+2) 普通问句：例如 “程心是谁”、“史强和汪淼是什么关系”
+3) 概念问句：例如 “黑暗森林法则是什么？”
+4) 基于原文内容的问句：例如 “歌者的歌谣的内容是什么”、“地球与三体大战时有哪些舰队名”
+5) 基于原文的人物生平类：例如 “维德在三体中担当什么职位，干了什么”
+6) 基于原文的章节标题：例如 “‘时间之外的往事’的完整内容是什么”
+7) 原文引用片段：例如 “前进，前进，不择手段的前进！”
+
+【输出格式】
+你必须只输出一个 JSON 对象，不要添加任何其它文字，例如：
+
+{
+  "query_type": "snippet" | "keyword" | "question",
+  "intent": "locate_original" | "ask_original_text" | "ask_meaning" |
+            "ask_character_profile" | "ask_story_detail" | "ask_other",
+  "search_query": "用来做检索的短字符串，可以包含多个词，用空格分隔",
+  "keywords": ["关键词1", "关键词2", "..."],
+  "need_original_text": true or false
+}
+
+字段解释：
+
+1. query_type：
+   - "snippet": 查询本身就是小说中的原文片段或名句，例如：
+       - “前进，前进，不择手段的前进！”
+   - "keyword": 查询主要是名词短语，例如：
+       - “黑暗森林”、“歌者歌谣”
+   - "question": 查询是完整问句，例如：
+       - “程心是谁”、“歌者的歌谣的内容是什么”
+
+2. intent：
+   - "locate_original": 用户主要想找到原文片段或名句在小说中的位置或全文（通常 query_type=snippet）。
+   - "ask_original_text": 用户用问句方式询问某段原文/歌谣/列表型内容，例如：
+       - “歌者的歌谣的内容是什么”
+       - “地球与三体大战时有哪些舰队名”
+       - “‘时间之外的往事’的完整内容是什么”
+   - "ask_meaning": 解释概念，例如：
+       - “黑暗森林法则是什么？”
+   - "ask_character_profile": 介绍人物，例如：
+       - “程心是谁”
+   - "ask_story_detail": 询问具体情节或人物事迹，例如：
+       - “史强和汪淼是什么关系”
+       - “维德在三体中担当什么职位，干了什么”
+   - "ask_other": 其它不容易分类的情况。
+
+3. search_query：
+   - 这是给搜索引擎使用的检索串，要尽量简短直接。
+   - 去掉“具体”“内容”“请问”“是什么”“有哪些”“吗”“呢”等疑问成分；
+   - 保留核心人物名、组织名、事件名、章节名等；
+   - 可以包含多个词，用空格分隔，例如：
+       - “黑暗森林”
+       - “程心”
+       - “史强 汪淼”
+       - “歌者 歌谣”
+       - “时间之外的往事”
+
+4. keywords：
+   - 1~5 个最重要的关键词或短语，每个最好是小说中自然出现的词组。
+   - 例如 ["黑暗森林"], ["程心"], ["史强", "汪淼"], ["歌者", "歌谣"], ["时间之外的往事"]。
+
+5. need_original_text：
+   - 如果用户明显在要“小说原文/歌词/具体句子/完整列表内容”，设为 true：
+       - intent 为 "locate_original" 或 "ask_original_text" 的情况；
+       - 或者问题中出现“原文、原话、原句、歌谣、歌词、完整内容、全文、内容、舰队名”等词语。
+   - 如果用户只是要解释、总结或人物介绍，设为 false。
+"""
+
+
+def _safe_json_loads(text: str) -> Dict[str, Any]:
+    """从大模型输出中尽量抠出 JSON 对象"""
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(text[start:end + 1])
+        except Exception:
+            pass
+
+    return {}
+
+
+def analyze_query(query: str) -> Dict[str, Any]:
     """
-    粗略判断当前输入是“问题”（qa）还是“关键词/短语”（keyword）
+    使用 LLM 分析查询：
+    - 判断 query_type (snippet/keyword/question)
+    - 推断 intent
+    - 返回 search_query / keywords / need_original_text
     """
-    if not query:
-        return "keyword"
-
-    q = query.strip()
-
-    # 常见疑问词
-    interrogatives = [
-        "是谁", "是什么", "为什么", "为何",
-        "怎么", "如何", "怎样",
-        "在哪", "在哪里",
-        "什么时候", "何时",
-        "多少", "几个人", "几个",
-        "是否", "是不是",
-        "哪一", "哪位", "哪个",
-        "吗", "么"
-    ]
-
-    if q.endswith(("?", "？")):
-        return "qa"
-    if any(word in q for word in interrogatives):
-        return "qa"
-
-    return "keyword"
-
-
-SYSTEM_PROMPT = """你是一名对刘慈欣《三体》三部曲（《三体》《三体II：黑暗森林》《三体III：死神永生》）极其熟悉的讲解助手。
-你已经完整阅读并记住三部曲中的主要人物、势力、时间线、关键事件和核心思想。
-
-请注意：
-1. 回答时可以、也应该充分依靠你对《三体》三部曲的先验知识，不需要引用用户提供的原文片段。
-2. 用户的输入可能是一个问题，也可能只是一个人物/名词/事件的关键词。
-3. 回答要用自然、流畅的中文，不要使用列表符号或小标题，不要加【】等装饰性前缀。
-4. 回答应尽量准确，避免与原著严重冲突；不确定的地方可以委婉说明，而不是瞎编。"""
-
-
-def summarize_with_llm(query: str, *_args, **_kwargs) -> str:
-    """
-    对外统一接口：
-    - 兼容原来的签名 summarize_with_llm(query, paragraphs)，多余参数会被忽略
-    - 内部只根据 query 来回答
-    """
-    mode = _detect_mode(query)
-
-    if mode == "qa":
-        # 问答模式：直接回答问题
-        user_content = (
-            f"用户的问题是：{query}\n\n"
-            "请直接、清楚地回答这个问题。"
-            "可以结合你对《三体》三部曲完整剧情的了解进行解释，"
-            "但不要输出项目符号、编号或标题，只用一到几段自然语言回答。"
-        )
-    else:
-        # 关键词模式：解释人物/概念/事件
-        user_content = (
-            f"用户给出的关键词或短语是：{query}\n\n"
-            "请解释这个词在《三体》三部曲中的含义和背景，"
-            "说明它涉及到的主要人物、势力或事件，以及它在故事中的重要性。"
-            "同样只用自然语言一到几段话来回答，不要加标题或列表符号。"
-        )
+    user_prompt = f"用户的原始查询是：{query}\n\n请严格按照上面的说明，只输出一个 JSON 对象。"
 
     resp = client.chat.completions.create(
         model="glm-4-flash",
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
+            {"role": "system", "content": ANALYZE_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
         ],
-        temperature=0.9,
-        top_p=0.7,
+        temperature=0.2,
+        top_p=0.9,
+        max_tokens=400,
+        stream=False,
+    )
+
+    content = resp.choices[0].message.content.strip()
+    data = _safe_json_loads(content)
+
+def analyze_query(query: str) -> Dict[str, Any]:
+    user_prompt = f"用户的原始查询是：{query}\n\n请严格按照上面的说明，只输出一个 JSON 对象。"
+
+    resp = client.chat.completions.create(
+        model="glm-4-flash",
+        messages=[
+            {"role": "system", "content": ANALYZE_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.2,
+        top_p=0.9,
+        max_tokens=400,
+        stream=False,
+    )
+
+    content = resp.choices[0].message.content.strip()
+    data = _safe_json_loads(content)
+
+    q = (query or "").strip()
+
+    # 1. 基本兜底
+    if data.get("query_type") not in ("snippet", "keyword", "question"):
+        data["query_type"] = "question"
+    if "intent" not in data:
+        data["intent"] = "ask_other"
+    if "search_query" not in data or not str(data["search_query"]).strip():
+        data["search_query"] = q
+    if "keywords" not in data or not isinstance(data["keywords"], list):
+        data["keywords"] = []
+    if "need_original_text" not in data:
+        data["need_original_text"] = data.get("intent") in ("locate_original", "ask_original_text")
+
+    # 2. 字面包含“原文/内容/歌谣/歌词/完整/舰队名”等，强制视为要原文
+    ori_hints = ["原文", "原话", "原句", "歌谣", "歌词", "完整内容", "完整", "全文", "内容", "舰队名", "舰队名称","名称"]
+    if any(h in q for h in ori_hints):
+        data["need_original_text"] = True
+        if data.get("intent") not in ("locate_original", "ask_original_text"):
+            data["intent"] = "ask_original_text"
+        if data.get("query_type") == "keyword":
+            data["query_type"] = "question"
+
+    # 3. 只要是 snippet，就默认是在找原文位置
+    if data.get("query_type") == "snippet":
+        data["need_original_text"] = True
+        if data.get("intent") not in ("locate_original", "ask_original_text"):
+            data["intent"] = "locate_original"
+
+    return data
+
+
+
+# ========= 2. 回答生成：由 app.py 构造 prompt，这里只负责调用模型 =========
+
+ANSWER_SYSTEM_PROMPT = """你是一名对刘慈欣《三体》三部曲极其熟悉的讲解助手。
+
+请注意：
+1. 回答要尽量基于用户提供的问题和上下文（如果给出），尤其是上下文中的小说原文。
+2. 如果给出了原文片段，请以原文为主要依据进行解释或抽取答案，但可以结合你对整部小说的理解做合理推断，给出尽可能完整、有用的回答。
+3. 回答使用自然、流畅的中文，不要加项目符号或标题，不要使用【】等装饰性前缀。
+4. 当你明显无法回答某个细节时，可以简要说明“小说中没有明确交代这一点”或“这部分情节不太确定”，但不要频繁强调“原文不足以回答”。"""
+
+
+
+def summarize_with_llm(prompt: str) -> str:
+    """
+    接收一个完整的 prompt（由 app.py 组织好，包含问题 + 可选上下文），
+    返回模型生成的回答文本。
+    """
+    resp = client.chat.completions.create(
+        model="glm-4-flash",
+        messages=[
+            {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.7,
+        top_p=0.9,
         max_tokens=800,
         stream=False,
     )
