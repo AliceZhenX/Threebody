@@ -11,7 +11,10 @@ import json
 
 from zhipuai import ZhipuAI
 
-client = ZhipuAI(api_key="dc189be1ea7948e8b7f17b1250c3747a.tKs0JBIe9Q4DS9mr")
+
+# 用你的实际 API Key（建议和 use.py 保持一致）
+client = ZhipuAI(api_key="my key")
+
 
 # ========= 1. 查询分析：7 种场景都走这里 =========
 
